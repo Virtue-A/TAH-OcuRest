@@ -10,8 +10,8 @@ Pipeline topology::
          └─► FACE_LANDMARKS
               ├─► SaccadeProcessor    ──► BLINK_METRICS ─┐
               ├─► EyeMovementProcessor──► GAZE_METRICS  ─┤
-              └─► FacialMovementProc  ──► FACIAL_METRICS ─┤
-                                                          ▼
+              └─► FacialMovementProc  ──► FACIAL_METRICS─┤
+                                                         ▼
                                               MLHeuristicModel
                                                      │
                                                      └─► FATIGUE_REPORT
