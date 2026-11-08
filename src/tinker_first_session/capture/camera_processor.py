@@ -22,6 +22,8 @@ import asyncio
 import logging
 import time
 
+from typing import Any
+
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -30,9 +32,6 @@ from tinker_first_session.core.broker import MessageBroker
 from tinker_first_session.core.messages import Channel, FaceLandmarks
 
 logger = logging.getLogger(__name__)
-
-# MediaPipe solution aliases
-_mp_face_mesh = mp.solutions.face_mesh
 
 # Iris landmark index ranges (inclusive).
 _LEFT_IRIS_START = 468
@@ -74,7 +73,7 @@ class CameraProcessor:
         # Initialised lazily in _capture_loop so we stay off-thread at
         # construction time.
         self._cap: cv2.VideoCapture | None = None
-        self._face_mesh: _mp_face_mesh.FaceMesh | None = None
+        self._face_mesh: Any | None = None
         self._task: asyncio.Task | None = None
 
         # FPS bookkeeping
@@ -124,7 +123,7 @@ class CameraProcessor:
             )
             return
 
-        self._face_mesh = _mp_face_mesh.FaceMesh(
+        self._face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=False,
             max_num_faces=1,
             refine_landmarks=True,
