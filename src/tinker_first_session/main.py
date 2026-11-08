@@ -15,7 +15,8 @@ Pipeline topology::
                                               MLHeuristicModel
                                                      │
                                                      └─► FATIGUE_REPORT
-                                                          └─► AlertManager
+                                                          ├─► AlertManager    (console + macOS notification)
+                                                          └─► WebSocketServer  (ws://localhost:8765 → frontend)
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from tinker_first_session.processors.eye_movement_processor import EyeMovementPr
 from tinker_first_session.processors.facial_movement_processor import FacialMovementProcessor
 from tinker_first_session.model.heuristic_model import MLHeuristicModel
 from tinker_first_session.ui.alert_manager import AlertManager
+from tinker_first_session.ui.websocket_server import WebSocketServer
 
 logger = logging.getLogger(__name__)
 
@@ -61,16 +63,17 @@ async def main() -> None:
     facial_movement = FacialMovementProcessor(broker)
     heuristic = MLHeuristicModel(broker)
     alert_mgr = AlertManager(broker)
+    ws_server = WebSocketServer(broker)   # streams JSON to ws://localhost:8765
 
     # Ordered list of BaseProcessor instances (camera is handled separately).
-    async_processors = [saccade, eye_movement, facial_movement, heuristic, alert_mgr]
+    async_processors = [saccade, eye_movement, facial_movement, heuristic, alert_mgr, ws_server]
 
     # ── Start all processors ────────────────────────────────────────────
     # CameraProcessor.start() is a coroutine that returns a Task.
     # BaseProcessor.start() is synchronous and returns a Task directly.
     tasks: list[asyncio.Task] = []
     tasks.append(await camera.start())
-    for proc in [saccade, eye_movement, facial_movement, heuristic, alert_mgr]:
+    for proc in async_processors:
         tasks.append(proc.start())
 
     logger.info(

@@ -174,3 +174,29 @@ class FatigueReport:
 
     components: dict[str, float]
     """Breakdown of contributing signals for debugging / UI."""
+
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-safe dictionary for WebSocket / HTTP delivery.
+
+        The returned dict is flat and human-readable so the frontend can
+        consume it without any extra transformation::
+
+            {
+                "fatigue_score": 0.72,
+                "attention_score": 0.31,
+                "should_alert": true,
+                "alert_message": "...",
+                "components": {
+                    "perclos": 0.80,
+                    "yawn": 0.65,
+                    ...
+                }
+            }
+        """
+        return {
+            "fatigue_score": self.fatigue_score,
+            "attention_score": self.attention_score,
+            "should_alert": self.should_alert,
+            "alert_message": self.alert_message,
+            "components": dict(self.components),
+        }
