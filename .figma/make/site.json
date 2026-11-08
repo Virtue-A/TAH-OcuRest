@@ -1,0 +1,11 @@
+{
+  "title": "OcuRest",
+  "description": "OcuRest is a gentle eye-care app that uses blink tracking and thoughtful break reminders to make screen time feel more comfortable.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

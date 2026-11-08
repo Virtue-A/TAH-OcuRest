@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useFatigueTracker } from "./useFatigueTracker";
 
 type IconProps = { className?: string };
 
@@ -1259,7 +1260,41 @@ export default function App() {
     useState<AccessibilityPreferences>(getSavedAccessibility);
   const [privacyMessage, setPrivacyMessage] = useState("");
 
-  const sample = blinkSamples[sampleIndex];
+  const { connected: backendConnected, report: fatigueReport } = useFatigueTracker("ws://localhost:8765");
+
+  const focusSignal = useMemo(() => {
+    if (backendConnected && fatigueReport) {
+      const fatigue = fatigueReport.fatigue_score;
+      const attention = fatigueReport.attention_score;
+
+      let label = "Steady";
+      let message = "Focus looks steady";
+      let slow = false;
+
+      if (fatigue >= 0.65) {
+        label = "Fatigued";
+        message = fatigueReport.alert_message || "High fatigue detected — a reset helps";
+        slow = true;
+      } else if (fatigue >= 0.45 || attention <= 0.40) {
+        label = "Dipping";
+        message = fatigueReport.alert_message || "Focus may be dipping";
+        slow = true;
+      } else if (attention >= 0.70) {
+        label = "Steady";
+        message = "Focus looks steady";
+        slow = false;
+      } else {
+        label = "Sustained";
+        message = "Sustained focus";
+        slow = false;
+      }
+
+      return { label, message, slow };
+    }
+    return blinkSamples[sampleIndex];
+  }, [backendConnected, fatigueReport, sampleIndex]);
+
+  const sample = focusSignal;
   const theme = colorThemes[themeName];
   const triggerSeconds = reminderPace === "responsive" ? 10 : reminderPace === "balanced" ? 14 : 18;
   const lumiJourney = journeyState(companionProgress);
@@ -1278,12 +1313,23 @@ export default function App() {
   }, [active, elapsed]);
 
   useEffect(() => {
+    // When connected to the ML backend, trigger alert immediately when model flags should_alert
+    if (backendConnected && fatigueReport) {
+      if (active && fatigueReport.should_alert && !snoozed && !feedback && !reminderSentRef.current) {
+        reminderSentRef.current = true;
+        setReminder(true);
+        void sendBrowserReminder(fatigueReport.alert_message);
+      }
+      return;
+    }
+
+    // Fallback simulation timer when backend is not streaming
     if (active && elapsed >= triggerSeconds && !snoozed && !feedback && !reminderSentRef.current) {
       reminderSentRef.current = true;
       setReminder(true);
       void sendBrowserReminder();
     }
-  }, [active, elapsed, snoozed, feedback, triggerSeconds]);
+  }, [active, elapsed, snoozed, feedback, triggerSeconds, backendConnected, fatigueReport]);
 
   useEffect(() => {
     return () => streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -1379,18 +1425,21 @@ export default function App() {
     setNotificationStatus(permission);
   }
 
-  async function sendBrowserReminder() {
+  async function sendBrowserReminder(customMessage?: string) {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+    const messageBody = customMessage || (
+      reminderStyle === "gentle"
+        ? "When it feels right, look somewhere far away for 20 seconds."
+        : "Look 20 feet away for 20 seconds, then return refreshed."
+    );
 
     const registration = await navigator.serviceWorker?.ready;
     if (registration) {
       await registration.showNotification(
         reminderStyle === "gentle" ? "A little space for your eyes" : "Take an eye break now",
         {
-          body:
-            reminderStyle === "gentle"
-              ? "When it feels right, look somewhere far away for 20 seconds."
-              : "Look 20 feet away for 20 seconds, then return refreshed.",
+          body: messageBody,
           icon: `${import.meta.env.BASE_URL}favicon.png`,
           tag: "soft-focus-break",
         },
@@ -1401,10 +1450,7 @@ export default function App() {
     const notification = new Notification(
       reminderStyle === "gentle" ? "A little space for your eyes" : "Take an eye break now",
       {
-        body:
-          reminderStyle === "gentle"
-            ? "When it feels right, look somewhere far away for 20 seconds."
-            : "Look 20 feet away for 20 seconds, then return refreshed.",
+        body: messageBody,
         icon: `${import.meta.env.BASE_URL}favicon.png`,
         tag: "soft-focus-break",
       },
@@ -1729,10 +1775,10 @@ export default function App() {
                 <>
                   <div className="camera-glass absolute left-5 top-5 flex items-center gap-2 rounded-full px-3 py-2 text-xs font-medium text-white backdrop-blur-md">
                     <span className="relative flex size-2">
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#a9cf9b] opacity-60" />
-                      <span className="relative inline-flex size-2 rounded-full bg-[var(--soft)]" />
+                      <span className={`absolute inline-flex size-full animate-ping rounded-full opacity-60 ${backendConnected ? "bg-[#5fe3a1]" : "bg-[#a9cf9b]"}`} />
+                      <span className={`relative inline-flex size-2 rounded-full ${backendConnected ? "bg-[#38d387]" : "bg-[var(--soft)]"}`} />
                     </span>
-                    {cameraOn ? "Camera on" : "Demo signal"}
+                    <span>{backendConnected ? "AI Tracking Live" : (cameraOn ? "Camera on" : "Demo signal")}</span>
                   </div>
                   <div className="absolute right-5 top-5 flex items-center gap-2">
                     <div
@@ -1786,27 +1832,41 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className="camera-glass absolute inset-x-5 bottom-5 rounded-2xl border border-white/10 p-4 text-white shadow-lg backdrop-blur-xl sm:inset-x-auto sm:left-5 sm:w-[310px]">
+                  <div className="camera-glass absolute inset-x-5 bottom-5 rounded-2xl border border-white/10 p-4 text-white shadow-lg backdrop-blur-xl sm:inset-x-auto sm:left-5 sm:w-[320px]">
                     <div className="mb-3 flex items-center justify-between">
-                      <span className="text-xs font-medium text-white/60">Focus signal</span>
-                      <span
-                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${sample.slow ? "bg-[#f5d898] text-[#5d4517]" : "bg-[var(--soft)] text-[#214b35]"}`}
-                      >
-                        {sample.label}
+                      <span className="text-xs font-medium text-white/60">
+                        {backendConnected ? "Live AI Signal" : "Focus signal"}
                       </span>
+                      <div className="flex items-center gap-2">
+                        {backendConnected && fatigueReport && (
+                          <span className="font-mono text-[10px] text-white/75">
+                            Attn {Math.round(fatigueReport.attention_score * 100)}%
+                          </span>
+                        )}
+                        <span
+                          className={`rounded-full px-2 py-1 text-[11px] font-semibold ${sample.slow ? "bg-[#f5d898] text-[#5d4517]" : "bg-[var(--soft)] text-[#214b35]"}`}
+                        >
+                          {sample.label}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-end justify-between gap-4">
                       <p className="font-display text-xl tracking-[-0.02em] text-white/90">
                         {sample.message}
                       </p>
                       <div className="flex h-8 items-end gap-1" aria-hidden="true">
-                        {[8, 18, 11, 25, 15, 28, 20, 13, 7].map((height, index) => (
-                          <span
-                            key={index}
-                            className={`w-1 rounded-full transition-all duration-700 ${sample.slow && index > 5 ? "bg-[#efcf86]" : "bg-[#a9c9b9]"}`}
-                            style={{ height: Math.max(5, height - sampleIndex * (index % 3)) }}
-                          />
-                        ))}
+                        {[8, 18, 11, 25, 15, 28, 20, 13, 7].map((height, index) => {
+                          const barHeight = backendConnected && fatigueReport
+                            ? Math.max(4, Math.round(height * (fatigueReport.attention_score * 1.2)))
+                            : Math.max(5, height - sampleIndex * (index % 3));
+                          return (
+                            <span
+                              key={index}
+                              className={`w-1 rounded-full transition-all duration-700 ${sample.slow && index > 5 ? "bg-[#efcf86]" : "bg-[#a9c9b9]"}`}
+                              style={{ height: barHeight }}
+                            />
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1927,7 +1987,9 @@ export default function App() {
             )}
 
             <p className="mt-auto pt-6 text-xs leading-5 text-[var(--body-muted)]">
-              Prototype mode · Eye tracking uses sample data. Keep this tab open for reminders.
+              {backendConnected
+                ? "🟢 Live AI tracking active · Connected to Python backend (ws://localhost:8765)"
+                : "Prototype mode · Eye tracking uses sample data. Keep backend running for live ML metrics."}
             </p>
           </aside>
         </section>
@@ -2207,6 +2269,63 @@ export default function App() {
             </div>
 
             <div className="mt-7 border-t border-[var(--line)] pt-7">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--ink)]">Python ML Backend</p>
+                  <p className="mt-0.5 text-xs text-[var(--body-muted)]">
+                    Local WebSocket stream on ws://localhost:8765
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    backendConnected
+                      ? "bg-[#d7f5e3] text-[#1e6b37]"
+                      : "bg-[var(--surface-muted)] text-[var(--body-muted)]"
+                  }`}
+                >
+                  {backendConnected ? "Connected" : "Offline"}
+                </span>
+              </div>
+
+              {backendConnected && fatigueReport ? (
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl bg-[var(--surface-muted)] p-3">
+                  <div>
+                    <span className="block text-[10px] text-[var(--body-muted)]">Fatigue Score</span>
+                    <strong className="font-mono text-sm text-[var(--ink)]">
+                      {Math.round(fatigueReport.fatigue_score * 100)}%
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-[var(--body-muted)]">Attention Score</span>
+                    <strong className="font-mono text-sm text-[var(--ink)]">
+                      {Math.round(fatigueReport.attention_score * 100)}%
+                    </strong>
+                  </div>
+                  {fatigueReport.components.perclos !== undefined && (
+                    <div>
+                      <span className="block text-[10px] text-[var(--body-muted)]">PERCLOS</span>
+                      <span className="font-mono text-xs text-[var(--ink)]">
+                        {(fatigueReport.components.perclos * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  )}
+                  {fatigueReport.components.head_stability !== undefined && (
+                    <div>
+                      <span className="block text-[10px] text-[var(--body-muted)]">Head Stability</span>
+                      <span className="font-mono text-xs text-[var(--ink)]">
+                        {(fatigueReport.components.head_stability * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] text-[var(--body-muted)]">
+                  Start the Python backend with <code className="rounded bg-[var(--surface-muted)] px-1 py-0.5 font-mono">uv run fatigue-tracker</code> to stream real-time computer vision metrics.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-7 border-t border-[var(--line)] pt-7">
               <p className="text-sm font-semibold text-[var(--ink)]">Privacy</p>
               <p className="mt-1 text-xs text-[var(--body-muted)]">
                 Understand and control what OcuRest keeps.
@@ -2295,9 +2414,11 @@ export default function App() {
                   </button>
                 </div>
                 <p className="mt-2 text-sm leading-5 text-[var(--body-muted)]">
-                  {reminderStyle === "gentle"
-                    ? "Your blinking has slowed. Let your eyes soften for 20 seconds."
-                    : "Your blink rhythm has slowed. Look 20 feet away, then return refreshed."}
+                  {backendConnected && fatigueReport?.alert_message
+                    ? fatigueReport.alert_message
+                    : reminderStyle === "gentle"
+                      ? "Your blinking has slowed. Let your eyes soften for 20 seconds."
+                      : "Your blink rhythm has slowed. Look 20 feet away, then return refreshed."}
                 </p>
                 <div className="mt-5 flex gap-2">
                   <button
