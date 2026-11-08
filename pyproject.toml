@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "mediapipe>=0.10.14",
+    "mediapipe==0.10.14",
     "opencv-python>=4.10.0",
     "numpy>=1.26.0",
     "scipy>=1.13.0",
