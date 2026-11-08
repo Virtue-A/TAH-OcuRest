@@ -1,0 +1,22 @@
+[project]
+name = "tinker-first-session"
+version = "0.1.0"
+description = "Student Fatigue & Awareness Tracker — webcam-based attention monitoring"
+readme = "README.md"
+authors = [
+    { name = "Virtue-A", email = "omarkofahi08@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "mediapipe>=0.10.14",
+    "opencv-python>=4.10.0",
+    "numpy>=1.26.0",
+    "scipy>=1.13.0",
+]
+
+[project.scripts]
+fatigue-tracker = "tinker_first_session.main:run"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
